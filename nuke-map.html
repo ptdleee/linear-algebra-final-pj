@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>NukeMap</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:Helvetica;background:#f4f4f4;color:#1a1a1a;overflow:hidden}
+#header{position:fixed;top:0;left:0;right:0;height:48px;background:#fff;border-bottom:1px solid #ddd;display:flex;align-items:center;gap:12px;padding:0 16px;z-index:1000}
+#header h1{font-size:16px;color:#c0392b;font-family:Helvetica;text-transform:uppercase}
+#header span{font-size:12px;color:#888}
+#sidebar{position:fixed;top:48px;left:0;bottom:0;width:300px;background:#fff;border-right:1px solid #ddd;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;z-index:999}
+#map{position:fixed;top:48px;left:300px;right:0;bottom:0;z-index:1}
+label{font-size:12px;color:#666;display:block;margin-bottom:3px}
+select,input[type=range]{width:100%;padding:6px;border:1px solid #ddd;border-radius:3px;font-size:13px;background:#f9f9f9}
+.row{display:flex;gap:8px;align-items:center}
+.row input{flex:1}
+.row span{font-family:Helvetica;font-size:12px;color:#e67e22;min-width:40px;text-align:right}
+button{width:100%;padding:10px;font-size:14px;font-family:Helvetica;border:none;cursor:pointer;border-radius:3px}
+.det{background:#c0392b;color:#fff}
+.det:hover{background:#a93226}
+.clr{background:transparent;border:1px solid #ddd;color:#888;margin-top:6px}
+.clr:hover{color:#333;border-color:#999}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{background:#f9f9f9;border:1px solid #ddd;padding:8px;border-radius:3px}
+.stat .l{font-size:10px;color:#888;font-family:Helvetica;text-transform:uppercase}
+.stat .v{font-size:15px;font-weight:600}
+.stat.red .v{color:#c0392b}
+.stat.amb .v{color:#e67e22}
+.hint{font-size:12px;color:#888;text-align:center;font-family:Helvetica;line-height:1.7}
+.hint em{color:#e67e22;font-style:normal}
+.sec-title{font-size:10px;font-family:Helvetica;color:#aaa;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
+.zone-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #eee}
+.zone-row:last-child{border:none}
+.zdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.zn{font-size:12px;color:#666;flex:1}
+.zr{font-family:Helvetica;font-size:11px;min-width:52px;text-align:right}
+.zc{font-family:Helvetica;font-size:11px;color:#888;min-width:60px;text-align:right}
+.bar-wrap{margin:6px 0}
+.bar-lbl{display:flex;justify-content:space-between;font-size:11px;font-family:Helvetica;margin-bottom:3px}
+.bar-bg{background:#eee;border-radius:2px;height:5px;overflow:hidden}
+.bar{height:100%;border-radius:2px;transition:width .4s;background:#c0392b}
+.bar.inj{background:#e67e22}
+.math{font-size:11px;color:#888;line-height:1.8;font-family:Helvetica}
+.math em{color:#e67e22;font-style:normal}
+.flash{position:fixed;top:48px;left:300px;right:0;bottom:0;background:rgba(255,200,100,.2);pointer-events:none;animation:fl .7s ease-out forwards;z-index:2}
+@keyframes fl{0%{opacity:1}100%{opacity:0}}
+#sidebar::-webkit-scrollbar{width:4px}
+#sidebar::-webkit-scrollbar-thumb{background:#ddd;border-radius:2px}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div id="dot" style="width:8px;height:8px;border-radius:50%;background:#aaa;flex-shrink:0"></div>
+  <h1>NukeMap</h1>
+</div>
+
+<div id="sidebar">
+  <div>
+    <div class="sec-title">Jump to Location</div>
+    <div style="display:flex;gap:6px">
+      <input type="text" id="locInput" placeholder="City Name" style="flex:1;padding:6px;border:1px solid #ddd;border-radius:3px;font-size:13px;background:#f9f9f9"/>
+      <button id="locBtn" style="width:auto;padding:6px 10px;background:#333;color:#fff;font-size:13px;border:none;border-radius:3px;cursor:pointer">Go</button>
+    </div>
+    <div id="locSuggestions" style="margin-top:4px;display:none;border:1px solid #ddd;border-radius:3px;overflow:hidden;background:#fff"></div>
+    <div id="locError" style="font-size:11px;color:#c0392b;margin-top:4px;display:none">City not found.</div>
+  </div>
+
+  <div>
+    <div class="sec-title">Weapon</div>
+    <label>Choose your WMD</label>
+    <select id="weapon" style="margin-bottom:10px">
+      <option value="15">Little Boy — 15 kt (Hiroshima, 1945)</option>
+      <option value="100">W-76 — 100 kt (Modern SLBM)</option>
+      <option value="1000">Reference Bomb — 1 Mt (1,000 kt)</option>
+      <option value="50000">Tsar Bomba — 50 Mt (Largest ever)</option>
+    </select>
+    <label>Blast type: Surface blast</label>
+    <select id="burst" style="margin-bottom:10px">
+      <option value="0.85">Surface blast </option>
+    </select>
+    <label>Population density — <em id="densLbl">auto</em> people/km²</label>
+    <div class="row">
+      <input type="number" id="dens" min="0" max="100000" step="100" value=""
+      style="width:100%;padding:6px;
+      border:1px solid #ddd;border-radius:3px;font-size:13px;background:#f9f9f9"/>
+    </div>
+  </div>
+
+  <div>
+    <button class="det" id="detBtn"> Detonate</button>
+    <button class="clr" id="clrBtn">Clear</button>
+  </div>
+
+  <div id="hintBox">
+    <div class="hint">click on the map to select your desired <br/><em>ground zero</em>,<br/>then press Detonate.</div>
+  </div>
+
+  <div id="results" style="display:none">
+    <div class="sec-title">Detonation Results</div>
+    <div class="stats">
+      <div class="stat red"><div class="l">Yield</div><div class="v" id="rYield">—</div></div>
+      <div class="stat"><div class="l">Location</div><div class="v" id="rLoc" style="font-size:12px">—</div></div>
+      <div class="stat red"><div class="l">Fatalities</div><div class="v" id="rDead">—</div></div>
+      <div class="stat amb"><div class="l">Injured</div><div class="v" id="rInj">—</div></div>
+    </div>
+    <div class="bar-wrap" style="margin-top:10px">
+      <div class="bar-lbl"><span id="pD" style="color:#c0392b">0%</span><span>fatalities</span></div>
+      <div class="bar-bg"><div class="bar" id="bD" style="width:0%"></div></div>
+    </div>
+    <div class="bar-wrap">
+      <div class="bar-lbl"><span id="pI" style="color:#e67e22">0%</span><span>injuries</span></div>
+      <div class="bar-bg"><div class="bar inj" id="bI" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div id="zones" style="display:none">
+    <div class="sec-title">Blast Zones</div>
+    <div id="zoneRows"></div>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const ZONES = [
+  { label:'Fireball',          color:'#8B0000', K:1.48,  exp:1/3, kill:1.00, inj:0.00 },
+  { label:'Heavy blast 20psi', color:'#ff4400', K:2.2,   exp:1/3, kill:0.50, inj:0.45 },
+  { label:'Thermal burns',     color:'#ff8800', K:11.0,  exp:0.5, kill:0.10, inj:0.65 },
+  { label:'Moderate 5psi',     color:'#ffcc00', K:4.7,   exp:1/3, kill:0.05, inj:0.45 },
+  { label:'Light 1psi',        color:'#88bb44', K:11.3,  exp:1/3, kill:0.01, inj:0.25 },
+];
+
+const CITIES = [
+  {n:'Tokyo',       lat:35.68,  lon:139.69, d:6363},
+  {n:'Chongqing', lat:29.5657,  lon:106.5512,  d:389}, // trung khanh
+  {n:'Delhi',       lat:28.61,  lon:77.21,  d:11320},
+  {n:'Shanghai',    lat:31.23,  lon:121.47, d:3800},
+  {n:'Sao Paulo',   lat:-23.55, lon:-46.63, d:7216},
+  {n:'Mexico City', lat:19.43,  lon:-99.13, d:6000},
+  {n:'Cairo',       lat:30.04,  lon:31.24,  d:19376},
+  {n:'Mumbai',      lat:19.08,  lon:72.88,  d:20667},
+  {n:'Beijing',     lat:39.91,  lon:116.39, d:1320},
+  {n:'Dhaka',       lat:23.72,  lon:90.41,  d:44500},
+  {n:'New York',    lat:40.71,  lon:-74.01, d:10900},
+  {n:'Lagos',       lat:6.45,   lon:3.40,   d:20000},
+  {n:'Buenos Aires',lat:-34.60, lon:-58.38, d:5000},
+  {n:'Manila',      lat:14.60,  lon:120.98, d:46178},
+  {n:'Tehran',      lat:35.69,  lon:51.39,  d:11900},
+  {n:'Moscow',      lat:55.75,  lon:37.62,  d:4925},
+  {n:'London',      lat:51.51,  lon:-0.13,  d:5666},
+  {n:'Paris',       lat:48.85,  lon:2.35,   d:20246},
+  {n:'Seoul',       lat:37.57,  lon:126.98, d:16700},
+  {n:'Jakarta',     lat:-6.21,  lon:106.85, d:15100},
+  {n:'Ho Chi Minh', lat:10.82,  lon:106.63, d:4292},
+  {n:'Bangkok',     lat:13.75,  lon:100.52, d:5345},
+  {n:'Singapore',   lat:1.35,   lon:103.82, d:7804},
+  {n:'Hong Kong',   lat:22.32,  lon:114.17, d:6890},
+  {n:'Hanoi',       lat:21.03,  lon:105.85, d:2398},
+  {n:'Nairobi',     lat:-1.29,  lon:36.82,  d:4509},
+  {n:'Karachi',     lat:24.86,  lon:67.01,  d:6600},
+  {n:'Istanbul',    lat:41.01,  lon:28.95,  d:2960},
+  {n:'Kyiv',        lat:50.45,  lon:30.52,  d:3500},
+  {n:'Baghdad',     lat:33.34,  lon:44.40,  d:7900},
+  {n:'Lima',        lat:-12.05, lon:-77.04, d:3200},
+  {n:'Ben Tre',     lat:10.25,  lon:106.33, d:1893.52},
+  {n:'Hai Phong',   lat:20.8449, lon:106.6881, d:1459},
+  {n:'Da Nang',     lat:16.05, lon:108.21, d:258},
+  {n:'Can Tho',     lat:10.05, lon:105.47, d:660},
+  {n:'Hue',         lat:16.27, lon:107.35, d:319.10},
+  {n:'Dong Nai',    lat:11.7, lon:107.11, d:379.74},
+  {n:'An Giang',    lat:10.3, lon:105.10, d:500.79},
+  {n:'Bac Ninh',    lat:21.5, lon:106.10, d:767.06},
+  {n:'Cao Bang',    lat:22.4, lon:106.00, d:98.28},
+  {n:'Ca Mau',      lat:9.11, lon:105.90, d:904.4},
+  {n:'Dien Bien',   lat:21.23, lon:103.10, d:274.75},
+  {n:'Dak Lak',     lat:12.40, lon:108.3, d:184.9458},
+  {n:'Dong Thap',   lat:10.4, lon:105.4, d:735.866},
+  {n:'Gia Lai',     lat:13.45, lon:108.15, d:166.0922},
+  {n:'Ha Tinh',     lat:18.25, lon:105.69, d:1700},
+  {n:'Hung Yen',    lat:20.64, lon:106.05, d:1606},
+  {n:'Khanh Hoa',   lat:12.15, lon:109.12, d:281},
+  {n:'Lai Chau',    lat:22, lon:103, d:65.67},
+  {n:'Lao Cai',     lat:22.4896, lon:104.0188, d:484},
+  {n:'Lam Dong',     lat:11.5753, lon:108.1429, d:159},
+  {n:'Lang Son',     lat:21.5114, lon:106.4540, d:106},
+  {n:'Nghe An',     lat:19.1035, lon:104.5838, d:232},
+  {n:'Ninh Binh',     lat:20.15, lon:105.50, d:	1119.12},
+  {n:'Phu Tho',     lat:21.20, lon:105.10, d:	430},
+  {n:'Quang Ngai',     lat:15, lon:108.40, d:	145.7440},
+  {n:'Quang Ninh',     lat:21.15, lon:107.20, d:	257.17},
+  {n:'Quang Tri',     lat:16.4449, lon:107.1140, d:	315},
+  {n:'Son La',     lat:21.1937, lon:103.5451, d:	327.82},
+  {n:'Thanh Hoa',     lat:19.4827, lon:105.4635, d:	3700},
+  {n:'Thai Nguyen',     lat:21.36, lon:105.51, d:	1860},
+  {n:'Tuyen Quang',     lat:21.49, lon:105.13, d:	879},
+  {n:'Tay Ninh',     lat:11.224, lon:106.078, d:	970},
+  {n:'Vinh Long',     lat:10.15, lon:105.58, d:	4160},
+  {n:'Special location',     lat:10.72736965107, lon:106.71994358951974, d:	13000},
+  {n:'KU Leuven',     lat:50.84904224826303, lon:4.356291623950901, d:	13000},
+];
+
+const map = L.map('map', { zoomAnimation: true }).setView([20, 10], 2);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  attribution: '© CartoDB © OpenStreetMap contributors',
+  subdomains: 'abcd'
+}).addTo(map);
+
+let pin = null, circles = [], gz = null;
+
+map.on('click', e => {
+  gz = e.latlng;
+  if (pin) map.removeLayer(pin);
+  pin = L.circleMarker(e.latlng, {
+    radius:6, color:'#c0392b', fillColor:'#c0392b', fillOpacity:1, weight:2
+  }).addTo(map);
+  document.getElementById('dot').style.background = '#c0392b';
+  document.getElementById('hintBox').style.display = 'none';
+});
+
+document.getElementById('dens').addEventListener('input', function() {
+  const v = +this.value;
+  document.getElementById('densVal').textContent = v ? v.toLocaleString() : 'auto';
+  document.getElementById('densLbl').textContent = v ? v.toLocaleString() : 'auto';
+});
+
+document.getElementById('detBtn').addEventListener('click', () => {
+  if (!gz) { alert('Click the map to place ground zero first.'); return; }
+  detonate(gz);
+});
+
+document.getElementById('clrBtn').addEventListener('click', () => {
+  if (pin) map.removeLayer(pin);
+  circles.forEach(c => map.removeLayer(c));
+  pin = null; circles = []; gz = null;
+  document.getElementById('dot').style.background = '#aaa';
+  ['results','zones','mathBox'].forEach(id => document.getElementById(id).style.display = 'none');
+  document.getElementById('hintBox').style.display = 'block';
+});
+
+function nearCity(lat, lon) {
+  return CITIES.reduce((b, c) => {
+    const d = Math.hypot(c.lat - lat, c.lon - lon);
+    return d < b.d ? {c, d} : b;
+  }, {c: null, d: 5}).c;
+}
+
+function fmt(n) {
+  return n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : ''+n;
+}
+function fmtR(m) {
+  return m >= 1000 ? (m/1000).toFixed(1)+' km' : Math.round(m)+' m';
+}
+
+function detonate(ll) {
+  // 1. Reset previous layers
+  circles.forEach(c => map.removeLayer(c));
+  circles = [];
+
+  // 2. Input Variables
+  const kt = +document.getElementById('weapon').value;
+  const isAirBurst = document.getElementById('burst').value === "1";
+  const densO = +document.getElementById('dens').value;
+  const city = nearCity(ll.lat, ll.lng);
+  const dens = densO || (city ? city.d : 50);
+  const Wmt = kt / 1000;
+
+  const W_vec = [
+    Math.pow(Wmt, 1/3), // Fireball (Blast-based)
+    Math.pow(Wmt, 1/3), // Heavy Blast
+    Math.pow(Wmt, 0.5), // Thermal (Heat scales with square root)
+    Math.pow(Wmt, 1/3), // Moderate Blast
+    Math.pow(Wmt, 1/3)  // Light Blast
+  ];
+
+  const K_matrix = [1.48, 2.2, 11.0, 4.7, 11.3];
+
+  let calculatedZones = ZONES.map((z, i) => {
+    // Linear scaling (Dilation)
+    let r = K_matrix[i] * W_vec[i] * 1000;
+
+    // Scalar modifier for burst type
+    const f = (z.label === 'Thermal burns') ? (isAirBurst ? 1 : 0.7) : (isAirBurst ? 1 : 0.85);
+    r *= f;
+
+    return { ...z, r: r };
+  });
+
+  // Sort zones by radius
+  // This ensures the rings are rendered correctly and population math works
+  // even when Thermal effects scale differently than Blast effects.
+  calculatedZones.sort((a, b) => a.r - b.r);
+
+  let dead = 0, inj = 0;
+  calculatedZones.forEach((z, i) => {
+    const inner = i > 0 ? calculatedZones[i-1].r / 1000 : 0;
+    const outer = z.r / 1000;
+    const area = Math.PI * (outer * outer - inner * inner);
+    const pop = area * dens;
+
+    dead += pop * z.kill;
+    inj  += pop * z.inj * (1 - z.kill);
+  });
+
+  [...calculatedZones].reverse().forEach((z) => {
+    circles.push(L.circle(ll, {
+      radius: z.r, color: z.color, fillColor: z.color,
+      fillOpacity: 0.18, weight: 1.5, opacity: 0.8
+    }).addTo(map));
+  });
+
+  const outerM = calculatedZones[calculatedZones.length - 1].r;
+  const latDeg = outerM / 111320;
+  const lngDeg = outerM / (111320 * Math.cos(ll.lat * Math.PI / 180));
+  const bounds = L.latLngBounds([ll.lat-latDeg, ll.lng-lngDeg], [ll.lat+latDeg, ll.lng+lngDeg]);
+  map.flyToBounds(bounds, { padding: [60, 60], duration: 1.5 });
+
+  document.getElementById('rYield').textContent = kt >= 1000 ? (kt/1000).toFixed(1)+' Mt' : kt+' kt';
+  document.getElementById('rLoc').textContent = city ? city.n : `${ll.lat.toFixed(2)}°, ${ll.lng.toFixed(2)}°`;
+  document.getElementById('rDead').textContent = fmt(Math.round(dead));
+  document.getElementById('rInj').textContent = fmt(Math.round(inj));
+
+  const zoneRows = document.getElementById('zoneRows');
+  zoneRows.innerHTML = '';
+  calculatedZones.forEach((z, i) => {
+    const inner = i > 0 ? calculatedZones[i-1].r / 1000 : 0;
+    const outer = z.r / 1000;
+    const pop = Math.PI * (outer * outer - inner * inner) * dens;
+    zoneRows.insertAdjacentHTML('beforeend',
+      `<div class="zone-row">
+        <span class="zdot" style="background:${z.color}"></span>
+        <span class="zn">${z.label}</span>
+        <span class="zr">${fmtR(z.r)}</span>
+        <span class="zc" style="color:${z.color}">${fmt(Math.round(pop*z.kill))}✝ ${fmt(Math.round(pop*z.inj*(1-z.kill)))}⚕</span>
+      </div>`
+    );
+  });
+
+  ['results','zones'].forEach(id => document.getElementById(id).style.display = 'block');
+}
+
+// Location search
+const locInput = document.getElementById('locInput');
+const locSugg  = document.getElementById('locSuggestions');
+const locErr   = document.getElementById('locError');
+
+function jumpTo(lat, lon, label) {
+  gz = L.latLng(lat, lon);
+  if (pin) map.removeLayer(pin);
+  pin = L.circleMarker(gz, {
+    radius:6, color:'#c0392b', fillColor:'#c0392b', fillOpacity:1, weight:2
+  }).addTo(map);
+  map.flyTo(gz, 11, { duration: 1.2 });
+  document.getElementById('dot').style.background = '#c0392b';
+  document.getElementById('hintBox').style.display = 'none';
+  locInput.value = label;
+  locSugg.style.display = 'none';
+  locErr.style.display = 'none';
+
+  const city = CITIES.find(c => c.n === label);
+  if (city) {
+    document.getElementById('dens').value = city.d;
+    document.getElementById('densLbl').textContent = city.d.toLocaleString();
+  }
+}
+
+locInput.addEventListener('input', function() {
+  const q = this.value.trim().toLowerCase();
+  locErr.style.display = 'none';
+  if (!q) { locSugg.style.display = 'none'; return; }
+
+  // Check if it's a lat,lng pair
+  const coordMatch = q.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
+  if (coordMatch) {
+    locSugg.style.display = 'none';
+    return;
+  }
+
+  const matches = CITIES.filter(c => c.n.toLowerCase().includes(q)).slice(0, 6);
+  if (!matches.length) { locSugg.style.display = 'none'; return; }
+
+  locSugg.innerHTML = matches.map(c =>
+    `<div data-lat="${c.lat}" data-lon="${c.lon}" data-name="${c.n}"
+      style="padding:7px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid #eee"
+      onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background=''">${c.n}</div>`
+  ).join('');
+  locSugg.style.display = 'block';
+
+  locSugg.querySelectorAll('div').forEach(el => {
+    el.addEventListener('click', () => {
+      jumpTo(+el.dataset.lat, +el.dataset.lon, el.dataset.name);
+    });
+  });
+});
+
+document.getElementById('locBtn').addEventListener('click', () => {
+  const q = locInput.value.trim();
+  // Try coord pair first
+  const coordMatch = q.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
+  if (coordMatch) {
+    jumpTo(+coordMatch[1], +coordMatch[2], q);
+    return;
+  }
+  // Try city name exact/partial
+  const match = CITIES.find(c => c.n.toLowerCase().includes(q.toLowerCase()));
+  if (match) {
+    jumpTo(match.lat, match.lon, match.n);
+  } else {
+    locErr.style.display = 'block';
+  }
+});
+
+locInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('locBtn').click();
+});
+</script>
+</body>
+</html>
