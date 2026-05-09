@@ -37,12 +37,6 @@ button{width:100%;padding:10px;font-size:14px;font-family:Helvetica;border:none;
 .zdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .zn{font-size:12px;color:#666;flex:1}
 .zr{font-family:Helvetica;font-size:11px;min-width:52px;text-align:right}
-.zc{font-family:Helvetica;font-size:11px;color:#888;min-width:60px;text-align:right}
-.bar-wrap{margin:6px 0}
-.bar-lbl{display:flex;justify-content:space-between;font-size:11px;font-family:Helvetica;margin-bottom:3px}
-.bar-bg{background:#eee;border-radius:2px;height:5px;overflow:hidden}
-.bar{height:100%;border-radius:2px;transition:width .4s;background:#c0392b}
-.bar.inj{background:#e67e22}
 .math{font-size:11px;color:#888;line-height:1.8;font-family:Helvetica}
 .math em{color:#e67e22;font-style:normal}
 .flash{position:fixed;top:48px;left:300px;right:0;bottom:0;background:rgba(255,200,100,.2);pointer-events:none;animation:fl .7s ease-out forwards;z-index:2}
@@ -73,11 +67,14 @@ button{width:100%;padding:10px;font-size:14px;font-family:Helvetica;border:none;
     <div class="sec-title">Weapon</div>
     <label>Choose your WMD</label>
     <select id="weapon" style="margin-bottom:10px">
-      <option value="15">Little Boy — 15 kt (Hiroshima, 1945)</option>
-      <option value="100">W-76 — 100 kt (Modern SLBM)</option>
-      <option value="1000">Reference Bomb — 1 Mt (1,000 kt)</option>
-      <option value="50000">Tsar Bomba — 50 Mt (Largest ever)</option>
+      <option value="15000"> Castle Bravo (USA, March 1954) - 15 Mt</option>
+      <option value="10400"> Ivy Mike (USA, November 1952) - 10.4 Mt</option>
     </select>
+    <div id="customYieldBox" style="display:none;margin-bottom:10px">
+      <label>Custom yield (kt)</label>
+      <input type="number" id="customYield" min="0.001" step="any" value="100"
+        style="width:100%;padding:6px;border:1px solid #ddd;border-radius:3px;font-size:13px;background:#f9f9f9"/>
+    </div>
     <label>Blast type: Surface blast</label>
     <select id="burst" style="margin-bottom:10px">
       <option value="0.85">Surface blast </option>
@@ -104,16 +101,6 @@ button{width:100%;padding:10px;font-size:14px;font-family:Helvetica;border:none;
     <div class="stats">
       <div class="stat red"><div class="l">Yield</div><div class="v" id="rYield">—</div></div>
       <div class="stat"><div class="l">Location</div><div class="v" id="rLoc" style="font-size:12px">—</div></div>
-      <div class="stat red"><div class="l">Fatalities</div><div class="v" id="rDead">—</div></div>
-      <div class="stat amb"><div class="l">Injured</div><div class="v" id="rInj">—</div></div>
-    </div>
-    <div class="bar-wrap" style="margin-top:10px">
-      <div class="bar-lbl"><span id="pD" style="color:#c0392b">0%</span><span>fatalities</span></div>
-      <div class="bar-bg"><div class="bar" id="bD" style="width:0%"></div></div>
-    </div>
-    <div class="bar-wrap">
-      <div class="bar-lbl"><span id="pI" style="color:#e67e22">0%</span><span>injuries</span></div>
-      <div class="bar-bg"><div class="bar inj" id="bI" style="width:0%"></div></div>
     </div>
   </div>
 
@@ -127,17 +114,28 @@ button{width:100%;padding:10px;font-size:14px;font-family:Helvetica;border:none;
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+// Zone definitions using K matrix and exponents from:
+// R = K * W^e  (R in km, W in kt)
+// Matrix:
+// R1 = 0.0884 * W^0.4   — Fireball
+// R2 = 0.216408 * W^(1/3) — Heavy blast 20 psi
+// R3 = 0.51816 * W^(1/3)  — Moderate blast 6 psi
+// R4 = 1.18872 * W^(1/3)  — Light blast 1 psi
+// R5 = 0.82296 * W^(1/2)  — Radiation dose (500 rads)
+// R6 = 0.96560 * W^(1/2)  — Thermal burns
+
 const ZONES = [
-  { label:'Fireball',          color:'#8B0000', K:1.48,  exp:1/3, kill:1.00, inj:0.00 },
-  { label:'Heavy blast 20psi', color:'#ff4400', K:2.2,   exp:1/3, kill:0.50, inj:0.45 },
-  { label:'Thermal burns',     color:'#ff8800', K:11.0,  exp:0.5, kill:0.10, inj:0.65 },
-  { label:'Moderate 5psi',     color:'#ffcc00', K:4.7,   exp:1/3, kill:0.05, inj:0.45 },
-  { label:'Light 1psi',        color:'#88bb44', K:11.3,  exp:1/3, kill:0.01, inj:0.25 },
+  { label:'Fireball',            color:'#8B0000', K:0.0884,    exp:0.4   },
+  { label:'Heavy blast (20 psi)',color:'#ff4400', K:0.216408,  exp:1/3   },
+  { label:'Moderate blast (6 psi)',color:'#ffcc00', K:0.51816,  exp:1/3  },
+  { label:'Light blast (1 psi)', color:'#88bb44', K:1.18872,   exp:1/3   },
+  { label:'Radiation (500 rads)',color:'#aa44cc', K:0.82296,   exp:0.5   },
+  { label:'Thermal burns',       color:'#ff8800', K:0.5632704,   exp:0.5   },
 ];
 
 const CITIES = [
   {n:'Tokyo',       lat:35.68,  lon:139.69, d:6363},
-  {n:'Chongqing', lat:29.5657,  lon:106.5512,  d:389}, // trung khanh
+  {n:'Chongqing', lat:29.5657,  lon:106.5512,  d:389},
   {n:'Delhi',       lat:28.61,  lon:77.21,  d:11320},
   {n:'Shanghai',    lat:31.23,  lon:121.47, d:3800},
   {n:'Sao Paulo',   lat:-23.55, lon:-46.63, d:7216},
@@ -189,19 +187,19 @@ const CITIES = [
   {n:'Lam Dong',     lat:11.5753, lon:108.1429, d:159},
   {n:'Lang Son',     lat:21.5114, lon:106.4540, d:106},
   {n:'Nghe An',     lat:19.1035, lon:104.5838, d:232},
-  {n:'Ninh Binh',     lat:20.15, lon:105.50, d:	1119.12},
-  {n:'Phu Tho',     lat:21.20, lon:105.10, d:	430},
-  {n:'Quang Ngai',     lat:15, lon:108.40, d:	145.7440},
-  {n:'Quang Ninh',     lat:21.15, lon:107.20, d:	257.17},
-  {n:'Quang Tri',     lat:16.4449, lon:107.1140, d:	315},
-  {n:'Son La',     lat:21.1937, lon:103.5451, d:	327.82},
-  {n:'Thanh Hoa',     lat:19.4827, lon:105.4635, d:	3700},
-  {n:'Thai Nguyen',     lat:21.36, lon:105.51, d:	1860},
-  {n:'Tuyen Quang',     lat:21.49, lon:105.13, d:	879},
-  {n:'Tay Ninh',     lat:11.224, lon:106.078, d:	970},
-  {n:'Vinh Long',     lat:10.15, lon:105.58, d:	4160},
-  {n:'Special location',     lat:10.72736965107, lon:106.71994358951974, d:	13000},
-  {n:'KU Leuven',     lat:50.84904224826303, lon:4.356291623950901, d:	13000},
+  {n:'Ninh Binh',     lat:20.15, lon:105.50, d:1119.12},
+  {n:'Phu Tho',     lat:21.20, lon:105.10, d:430},
+  {n:'Quang Ngai',     lat:15, lon:108.40, d:145.7440},
+  {n:'Quang Ninh',     lat:21.15, lon:107.20, d:257.17},
+  {n:'Quang Tri',     lat:16.4449, lon:107.1140, d:315},
+  {n:'Son La',     lat:21.1937, lon:103.5451, d:327.82},
+  {n:'Thanh Hoa',     lat:19.4827, lon:105.4635, d:3700},
+  {n:'Thai Nguyen',     lat:21.36, lon:105.51, d:1860},
+  {n:'Tuyen Quang',     lat:21.49, lon:105.13, d:879},
+  {n:'Tay Ninh',     lat:11.224, lon:106.078, d:970},
+  {n:'Vinh Long',     lat:10.15, lon:105.58, d:4160},
+  {n:'Special location',     lat:10.72736965107, lon:106.71994358951974, d:13000},
+  {n:'KU Leuven',     lat:50.84904224826303, lon:4.356291623950901, d:13000},
 ];
 
 const map = L.map('map', { zoomAnimation: true }).setView([20, 10], 2);
@@ -222,9 +220,13 @@ map.on('click', e => {
   document.getElementById('hintBox').style.display = 'none';
 });
 
+// Show/hide custom yield input
+document.getElementById('weapon').addEventListener('change', function() {
+  document.getElementById('customYieldBox').style.display = this.value === 'custom' ? 'block' : 'none';
+});
+
 document.getElementById('dens').addEventListener('input', function() {
   const v = +this.value;
-  document.getElementById('densVal').textContent = v ? v.toLocaleString() : 'auto';
   document.getElementById('densLbl').textContent = v ? v.toLocaleString() : 'auto';
 });
 
@@ -238,7 +240,7 @@ document.getElementById('clrBtn').addEventListener('click', () => {
   circles.forEach(c => map.removeLayer(c));
   pin = null; circles = []; gz = null;
   document.getElementById('dot').style.background = '#aaa';
-  ['results','zones','mathBox'].forEach(id => document.getElementById(id).style.display = 'none');
+  ['results','zones'].forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('hintBox').style.display = 'block';
 });
 
@@ -249,64 +251,37 @@ function nearCity(lat, lon) {
   }, {c: null, d: 5}).c;
 }
 
-function fmt(n) {
-  return n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : ''+n;
-}
 function fmtR(m) {
   return m >= 1000 ? (m/1000).toFixed(1)+' km' : Math.round(m)+' m';
 }
 
 function detonate(ll) {
-  // 1. Reset previous layers
   circles.forEach(c => map.removeLayer(c));
   circles = [];
 
-  // 2. Input Variables
-  const kt = +document.getElementById('weapon').value;
+  // Get yield in kt
+  const weaponSel = document.getElementById('weapon').value;
+  const kt = weaponSel === 'custom' ? (+document.getElementById('customYield').value || 1) : +weaponSel;
+
   const isAirBurst = document.getElementById('burst').value === "1";
   const densO = +document.getElementById('dens').value;
   const city = nearCity(ll.lat, ll.lng);
   const dens = densO || (city ? city.d : 50);
-  const Wmt = kt / 1000;
 
-  const W_vec = [
-    Math.pow(Wmt, 1/3), // Fireball (Blast-based)
-    Math.pow(Wmt, 1/3), // Heavy Blast
-    Math.pow(Wmt, 0.5), // Thermal (Heat scales with square root)
-    Math.pow(Wmt, 1/3), // Moderate Blast
-    Math.pow(Wmt, 1/3)  // Light Blast
-  ];
+  // R = K * W^e  (R in km, W in kt)
+  let calculatedZones = ZONES.map(z => {
+    let r = z.K * Math.pow(kt, z.exp) * 1000; // convert km → metres
 
-  const K_matrix = [1.48, 2.2, 11.0, 4.7, 11.3];
-
-  let calculatedZones = ZONES.map((z, i) => {
-    // Linear scaling (Dilation)
-    let r = K_matrix[i] * W_vec[i] * 1000;
-
-    // Scalar modifier for burst type
     const f = (z.label === 'Thermal burns') ? (isAirBurst ? 1 : 0.7) : (isAirBurst ? 1 : 0.85);
     r *= f;
 
-    return { ...z, r: r };
+    return { ...z, r };
   });
 
-  // Sort zones by radius
-  // This ensures the rings are rendered correctly and population math works
-  // even when Thermal effects scale differently than Blast effects.
+  // Sort by radius so rings render correctly
   calculatedZones.sort((a, b) => a.r - b.r);
 
-  let dead = 0, inj = 0;
-  calculatedZones.forEach((z, i) => {
-    const inner = i > 0 ? calculatedZones[i-1].r / 1000 : 0;
-    const outer = z.r / 1000;
-    const area = Math.PI * (outer * outer - inner * inner);
-    const pop = area * dens;
-
-    dead += pop * z.kill;
-    inj  += pop * z.inj * (1 - z.kill);
-  });
-
-  [...calculatedZones].reverse().forEach((z) => {
+  [...calculatedZones].reverse().forEach(z => {
     circles.push(L.circle(ll, {
       radius: z.r, color: z.color, fillColor: z.color,
       fillOpacity: 0.18, weight: 1.5, opacity: 0.8
@@ -319,23 +294,23 @@ function detonate(ll) {
   const bounds = L.latLngBounds([ll.lat-latDeg, ll.lng-lngDeg], [ll.lat+latDeg, ll.lng+lngDeg]);
   map.flyToBounds(bounds, { padding: [60, 60], duration: 1.5 });
 
-  document.getElementById('rYield').textContent = kt >= 1000 ? (kt/1000).toFixed(1)+' Mt' : kt+' kt';
+  document.getElementById('rYield').textContent = kt >= 1000 ? (kt/1000).toFixed(2)+' Mt' : kt+' kt';
   document.getElementById('rLoc').textContent = city ? city.n : `${ll.lat.toFixed(2)}°, ${ll.lng.toFixed(2)}°`;
-  document.getElementById('rDead').textContent = fmt(Math.round(dead));
-  document.getElementById('rInj').textContent = fmt(Math.round(inj));
 
   const zoneRows = document.getElementById('zoneRows');
   zoneRows.innerHTML = '';
-  calculatedZones.forEach((z, i) => {
-    const inner = i > 0 ? calculatedZones[i-1].r / 1000 : 0;
-    const outer = z.r / 1000;
-    const pop = Math.PI * (outer * outer - inner * inner) * dens;
+  calculatedZones.forEach(z => {
+    const rkm = z.r / 1000;
+    const areakm2 = Math.PI * rkm * rkm;
+    const areaStr = areakm2 >= 1000
+      ? areakm2.toLocaleString('en-US', {maximumFractionDigits:0}) + ' km²'
+      : areakm2.toFixed(1) + ' km²';
     zoneRows.insertAdjacentHTML('beforeend',
       `<div class="zone-row">
         <span class="zdot" style="background:${z.color}"></span>
         <span class="zn">${z.label}</span>
-        <span class="zr">${fmtR(z.r)}</span>
-        <span class="zc" style="color:${z.color}">${fmt(Math.round(pop*z.kill))}✝ ${fmt(Math.round(pop*z.inj*(1-z.kill)))}⚕</span>
+        <span class="zr" style="min-width:60px">${fmtR(z.r)}</span>
+        <span class="zc" style="color:#888;min-width:72px;text-align:right;font-size:11px">${areaStr}</span>
       </div>`
     );
   });
@@ -373,12 +348,8 @@ locInput.addEventListener('input', function() {
   locErr.style.display = 'none';
   if (!q) { locSugg.style.display = 'none'; return; }
 
-  // Check if it's a lat,lng pair
   const coordMatch = q.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
-  if (coordMatch) {
-    locSugg.style.display = 'none';
-    return;
-  }
+  if (coordMatch) { locSugg.style.display = 'none'; return; }
 
   const matches = CITIES.filter(c => c.n.toLowerCase().includes(q)).slice(0, 6);
   if (!matches.length) { locSugg.style.display = 'none'; return; }
@@ -399,19 +370,11 @@ locInput.addEventListener('input', function() {
 
 document.getElementById('locBtn').addEventListener('click', () => {
   const q = locInput.value.trim();
-  // Try coord pair first
   const coordMatch = q.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
-  if (coordMatch) {
-    jumpTo(+coordMatch[1], +coordMatch[2], q);
-    return;
-  }
-  // Try city name exact/partial
+  if (coordMatch) { jumpTo(+coordMatch[1], +coordMatch[2], q); return; }
   const match = CITIES.find(c => c.n.toLowerCase().includes(q.toLowerCase()));
-  if (match) {
-    jumpTo(match.lat, match.lon, match.n);
-  } else {
-    locErr.style.display = 'block';
-  }
+  if (match) { jumpTo(match.lat, match.lon, match.n); }
+  else { locErr.style.display = 'block'; }
 });
 
 locInput.addEventListener('keydown', e => {
